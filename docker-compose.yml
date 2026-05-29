@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  api:
+    build: .
+    container_name: store_intelligence_api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/workspace/data
+      - ./store_intelligence.db:/workspace/store_intelligence.db
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:////workspace/store_intelligence.db
+      - API_URL=http://localhost:8000/events/ingest
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/stores/STORE_BLR_002/metrics"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
