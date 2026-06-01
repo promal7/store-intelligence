@@ -1,15 +1,60 @@
-# DESIGN.md - Store Intelligence System Architecture
+# System Architecture Design - Apex Retail Store Intelligence
 
-## 1. Edge Processing Pipeline Overview
-The video intelligence processing workflow uses an uncoupled edge topology. The system ingests raw 1080p, 15fps CCTV streams from local store cameras. A specialized execution pipeline running YOLOv8n handles spatial frame inference. Object extraction focuses on isolating individual customer bounding coordinates across fluctuating illumination matrices. The geometric pipeline abstracts tracking assignments using a custom stateful CentroidTracker. This tracker minimizes identity fragmentation by evaluating frame-to-frame tracking matrix shifts using spatial Euclidean optimization.
+This document outlines the end-to-end architectural layout of the Apex Retail Store Intelligence System, built under an Edge-to-Cloud paradigm to compute real-time retail analytics under network and resource constraints.
 
-To combat the known retail challenge of re-entry inflation and cross-camera overlap, the edge tracker maps trajectory velocities near zone polygons. Intersecting line-threshold metrics classify traversal vectors into definitive ENTRY or EXIT historical states. Region of interest (ROI) arrays correspond to physical layout partitions. This permits tracking frames to accurately isolate and emit specialized events such as ZONE_ENTER, ZONE_DWELL, and BILLING_QUEUE_JOIN directly to the operational ingestion layer.
++-----------------------------------------------------------------------------------+
+|                                  LOCAL STORE (EDGE)                               |
+|                                                                                   |
+|  +------------------+      +---------------------+      +----------------------+  |
+|  | Raw CCTV Feed    | ---> |  Inference Engine   | ---> |  Trajectory Tracker  |  |
+|  | (OpenCV Stream)  |      |  (YOLOv8 Object Det)|      |  (Re-entry Handling) |  |
+|  +------------------+      +---------------------+      +----------------------+  |
+|                                                                    |              |
+|                                                                    v              |
+|                                                         +----------------------+  |
+|                                                         |  Stream Manager      |  |
+|                                                         |  (JSON Event Post)   |  |
+|                                                         +----------------------+  |
++--------------------------------------------------------------------+--------------+
+|
+HTTPS Payload | (Structured Events)
+v
++-----------------------------------------------------------------------------------+
+|                                  CLOUD CENTRAL BACKEND                            |
+|                                                                                   |
+|  +-----------------------------------------------------------------------------+  |
+|  |                                  FastAPI ASGI Server                        |  |
+|  |                                                                             |  |
+|  |  +-----------------------+     +-------------------+     +---------------+  |  |
+|  |  | Telemetry Ingestion   |     | Analytics Router  |     | Anomaly Engine|  |  |
+|  |  | /metrics              |     | /funnel           |     | Watchdog      |  |  |
+|  |  +-----------------------+     +-------------------+     +---------------+  |  |
+|  +----------------------+-------------------+-----------------------+----------+  |
+|                         |                   |                       |             |
+|                         v                   v                       v             |
+|                  +------------+      +------------+          +-------------+      |
+|                  | Staff      |      | Sessioned  |          | STALE_FEED  |      |
+|                  | Filtering  |      | Storage    |          | Alert Log   |      |
+|                  +------------+      +------------+          +-------------+      |
+|                         |                   |                                     |
+|                         +---------+---------+                                     |
+|                                   |                                               |
+|                                   v                                               |
+|                        +---------------------+                                    |
+|                        | SQLite DB           |                                    |
+|                        | (SQLAlchemy Core)   |                                    |
+|                        +---------------------+                                    |
++-----------------------------------------------------------------------------------+
 
-## 2. API Schema and Temporal POS Integration
-The downstream microservice architecture is built using FastAPI to maximize concurrency throughput. Emitted behavioral telemetry events pass into an asynchronous ingestion endpoint designed to handle highly concurrent transactional batches. The operational tracking core stores raw telemetry data within a file-isolated SQLite instance operating in Write-Ahead Logging (WAL) state mode.
+## 2. Component Pipeline Breakdown
 
-The critical business engine computes conversion metrics by processing behavioral tracks against point-of-sale data within a strict temporary correlation window. Since individual customer tags are absent on incoming POS bills, correlation maps structural checkout timestamps back to visitor tracking histories. A customer tracking session crossing into a billing area zone coordinate boundary inside a 300-second (5-minute) pre-checkout delta window maps directly as a true positive conversion transaction. If a visitor departs the billing queue area without a corresponding POS transaction matching that time boundary, the engine identifies the session state as a drop-off and emits an analytical BILLING_QUEUE_ABANDON record.
+### A. Edge Detection & Localization Node
+- **`inference.py`**: Intercepts local CCTV network video streams frame-by-frame via OpenCV and feeds them into a highly optimized localized YOLOv8 model for real-time person detection.
+- **`tracker.py`**: Map-tracks sequential cross-frame bounding boxes. It implements an algorithmic spatial-temporal boundary window to handle re-entry detection and short-term occlusions, avoiding double-counting tracking profiles.
+- **`stream_manager.py`**: Batches and fires off micro-structured JSON schema event logs into the cloud gateway over async HTTP client post protocols.
 
-## 3. AI-Assisted Decisions
-* **Decision 1 (State Tracking Model):** The initial AI assistant output recommended building a complex deep-learning Re-ID vector network using an external feature extraction pipeline. During architecture evaluation, this was overridden. A localized geometric centroid distance mapping engine was selected instead to minimize CPU memory overhead on edge devices.
-* **Decision 2 (Database Choice):** An LLM model highly recommended an external standalone PostgreSQL service container. This design recommendation was modified to use an asynchronous SQLite database wrapper (aiosqlite) to maintain local runtime simplicity and satisfy the single-command zero-dependency evaluation criteria.
+### B. High-Throughput Central Cloud Gateway
+- **`main.py` & `endpoints.py` (FastAPI)**: Serves as an asynchronous non-blocking ingestion backend. Offers a dedicated `/metrics` endpoint to absorb incoming telemetry signals and a `/funnel` engine to compute traffic drop-off matrices cleanly.
+- **`filters.py`**: Isolates staff behavioral telemetry (recurrent baseline routes, specialized movement velocities) to isolate actual customer footfall behaviors.
+- **Database Layer (`database.py`)**: Persists state metrics utilizing SQLAlchemy abstractions on top of a highly optimized SQLite implementation structured with transaction isolation.
+- **Health Watchdog Framework**: Evaluates transaction timelines dynamically. Fires a sliding time window monitor that raises an operational `STALE_FEED` alert status if an ingestion socket remains mute for over 10 minutes continuously.
