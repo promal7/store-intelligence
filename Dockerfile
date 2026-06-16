@@ -3,16 +3,20 @@ FROM python:3.12-slim
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    libgl1 \
-    libglib2.0-0 \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir \
+    fastapi==0.115.0 \
+    uvicorn[standard]==0.30.6 \
+    pydantic==2.8.2 \
+    sqlalchemy==2.0.36 \
+    aiosqlite==0.20.0 \
+    python-multipart==0.0.12 \
+    httpx==0.27.2
 
-COPY . .
+COPY app/ ./app/
 
 EXPOSE 8000
 
