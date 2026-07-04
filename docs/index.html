@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Apex Retail — Store Intelligence</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap');
+:root{--bg:#0a0e1a;--surface:#111827;--surface2:#1a2235;--border:#1e2d45;--accent:#00d4ff;--accent2:#7c3aed;--green:#10b981;--yellow:#f59e0b;--red:#ef4444;--text:#e2e8f0;--muted:#64748b;--mono:'IBM Plex Mono',monospace;--sans:'IBM Plex Sans',sans-serif}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100vh}
+body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,212,255,.015) 2px,rgba(0,212,255,.015) 4px);pointer-events:none;z-index:1000}
+header{display:flex;align-items:center;justify-content:space-between;padding:16px 32px;border-bottom:1px solid var(--border);background:var(--surface);position:sticky;top:0;z-index:100}
+.logo{display:flex;align-items:center;gap:12px}
+.logo-dot{width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 12px var(--accent);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.logo-text{font-family:var(--mono);font-size:13px;font-weight:600;color:var(--accent);letter-spacing:.1em;text-transform:uppercase}
+.logo-sub{font-size:11px;color:var(--muted);font-family:var(--mono)}
+.header-right{display:flex;align-items:center;gap:20px}
+.store-select{background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:6px 12px;border-radius:6px;font-family:var(--mono);font-size:12px;cursor:pointer;outline:none}
+.status-badge{display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11px;color:var(--muted)}
+.status-dot{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green)}
+.status-dot.error{background:var(--red);box-shadow:0 0 8px var(--red)}
+.last-updated{font-family:var(--mono);font-size:10px;color:var(--muted)}
+main{padding:24px 32px;max-width:1400px;margin:0 auto}
+.kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px}
+.kpi-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:20px;position:relative;overflow:hidden;transition:border-color .2s}
+.kpi-card:hover{border-color:var(--accent)}
+.kpi-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--accent),var(--accent2))}
+.kpi-label{font-family:var(--mono);font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.12em;margin-bottom:10px}
+.kpi-value{font-family:var(--mono);font-size:32px;font-weight:600;color:var(--text);line-height:1;margin-bottom:6px}
+.kpi-value.accent{color:var(--accent)}.kpi-value.green{color:var(--green)}.kpi-value.yellow{color:var(--yellow)}.kpi-value.red{color:var(--red)}
+.kpi-sub{font-size:11px;color:var(--muted)}
+.charts-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:20px}
+.card-title{font-family:var(--mono);font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.12em;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between}
+.card-title span{color:var(--accent)}
+.chart-wrap{position:relative;height:220px}
+.funnel-wrap{display:flex;flex-direction:column;gap:8px;padding-top:4px}
+.funnel-stage{display:flex;align-items:center;gap:12px}
+.funnel-label{font-family:var(--mono);font-size:11px;color:var(--muted);width:100px;flex-shrink:0}
+.funnel-bar-wrap{flex:1;height:32px;background:var(--surface2);border-radius:4px;overflow:hidden}
+.funnel-bar{height:100%;border-radius:4px;transition:width .8s cubic-bezier(.4,0,.2,1);display:flex;align-items:center;padding-left:10px;font-family:var(--mono);font-size:11px;font-weight:600;color:#fff;min-width:40px}
+.funnel-drop{font-family:var(--mono);font-size:10px;color:var(--red);width:48px;text-align:right;flex-shrink:0}
+.heatmap-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.heatmap-cell{border-radius:6px;padding:12px;display:flex;flex-direction:column;gap:4px;transition:transform .2s;cursor:default}
+.heatmap-cell:hover{transform:scale(1.03)}
+.heatmap-zone{font-family:var(--mono);font-size:10px;color:rgba(255,255,255,.7);text-transform:uppercase;letter-spacing:.08em}
+.heatmap-score{font-family:var(--mono);font-size:22px;font-weight:600;color:#fff}
+.heatmap-dwell{font-size:10px;color:rgba(255,255,255,.5)}
+.bottom-row{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.anomaly-list{display:flex;flex-direction:column;gap:8px}
+.anomaly-item{background:var(--surface2);border-radius:8px;padding:12px 14px;border-left:3px solid var(--muted);display:flex;flex-direction:column;gap:4px}
+.anomaly-item.CRITICAL{border-left-color:var(--red)}.anomaly-item.WARN{border-left-color:var(--yellow)}.anomaly-item.INFO{border-left-color:var(--green)}
+.anomaly-header{display:flex;align-items:center;justify-content:space-between}
+.anomaly-type{font-family:var(--mono);font-size:11px;font-weight:600;color:var(--text)}
+.anomaly-severity{font-family:var(--mono);font-size:10px;padding:2px 8px;border-radius:20px;font-weight:600}
+.severity-CRITICAL{background:rgba(239,68,68,.15);color:var(--red)}.severity-WARN{background:rgba(245,158,11,.15);color:var(--yellow)}.severity-INFO{background:rgba(16,185,129,.15);color:var(--green)}
+.anomaly-msg{font-size:12px;color:var(--muted)}.anomaly-action{font-size:11px;color:var(--accent)}
+.no-anomalies{text-align:center;padding:40px 20px;font-family:var(--mono);font-size:12px;color:var(--green)}
+.health-grid{display:flex;flex-direction:column;gap:8px}
+.health-row{display:flex;align-items:center;justify-content:space-between;background:var(--surface2);border-radius:8px;padding:10px 14px}
+.health-store{font-family:var(--mono);font-size:11px;color:var(--text)}
+.health-status{font-family:var(--mono);font-size:10px;padding:2px 8px;border-radius:20px}
+.health-ok{background:rgba(16,185,129,.15);color:var(--green)}.health-stale{background:rgba(239,68,68,.15);color:var(--red)}
+.ingest-form{display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap}
+.ingest-btn{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border:none;padding:10px 20px;border-radius:6px;font-family:var(--mono);font-size:12px;font-weight:600;cursor:pointer;transition:opacity .2s,transform .1s;white-space:nowrap}
+.ingest-btn:hover{opacity:.9;transform:translateY(-1px)}.ingest-btn:active{transform:translateY(0)}
+.ingest-btn.secondary{background:var(--surface2);border:1px solid var(--border);color:var(--text)}
+.ingest-input{background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:6px;font-family:var(--mono);font-size:12px;outline:none;width:200px}
+.ingest-input:focus{border-color:var(--accent)}
+.ingest-log{margin-top:12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;font-family:var(--mono);font-size:11px;color:var(--muted);max-height:120px;overflow-y:auto;line-height:1.8}
+.log-ok{color:var(--green)}.log-err{color:var(--red)}.log-info{color:var(--accent)}
+.loading{display:flex;align-items:center;justify-content:center;height:100px;font-family:var(--mono);font-size:12px;color:var(--muted);gap:8px}
+.spin{width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.empty{text-align:center;padding:30px;font-family:var(--mono);font-size:11px;color:var(--muted);line-height:2}
+@media(max-width:900px){.kpi-row{grid-template-columns:repeat(2,1fr)}.charts-row,.bottom-row{grid-template-columns:1fr}main{padding:16px}header{padding:12px 16px}}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">
+    <div class="logo-dot" id="liveDot"></div>
+    <div>
+      <div class="logo-text">Apex Retail · Store Intelligence</div>
+      <div class="logo-sub">Real-time analytics dashboard</div>
+    </div>
+  </div>
+  <div class="header-right">
+    <select class="store-select" id="storeSelect">
+      <option value="STORE_BLR_002">STORE_BLR_002</option>
+      <option value="STORE_MUM_001">STORE_MUM_001</option>
+      <option value="STORE_DEL_003">STORE_DEL_003</option>
+    </select>
+    <div class="status-badge">
+      <div class="status-dot" id="statusDot"></div>
+      <span id="statusText">Connecting…</span>
+    </div>
+    <div class="last-updated" id="lastUpdated">—</div>
+  </div>
+</header>
+<main>
+  <div class="kpi-row">
+    <div class="kpi-card"><div class="kpi-label">Unique Visitors</div><div class="kpi-value accent" id="kpiVisitors">—</div><div class="kpi-sub">Today</div></div>
+    <div class="kpi-card"><div class="kpi-label">Conversion Rate</div><div class="kpi-value green" id="kpiConversion">—</div><div class="kpi-sub">Visitors → Purchase</div></div>
+    <div class="kpi-card"><div class="kpi-label">Queue Depth</div><div class="kpi-value yellow" id="kpiQueue">—</div><div class="kpi-sub">Billing area now</div></div>
+    <div class="kpi-card"><div class="kpi-label">Total Revenue</div><div class="kpi-value red" id="kpiRevenue">—</div><div class="kpi-sub">INR today</div></div>
+  </div>
+  <div class="charts-row">
+    <div class="card">
+      <div class="card-title">Conversion Funnel <span id="funnelDate">—</span></div>
+      <div class="funnel-wrap" id="funnelWrap"><div class="loading"><div class="spin"></div> Loading funnel…</div></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Zone Dwell Time <span>seconds avg</span></div>
+      <div class="chart-wrap"><canvas id="dwellChart"></canvas></div>
+    </div>
+  </div>
+  <div class="charts-row">
+    <div class="card">
+      <div class="card-title">Zone Heatmap <span id="heatmapConf">—</span></div>
+      <div class="heatmap-grid" id="heatmapGrid"><div class="loading"><div class="spin"></div> Loading…</div></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Active Anomalies <span id="anomalyCount">—</span></div>
+      <div class="anomaly-list" id="anomalyList"><div class="loading"><div class="spin"></div> Scanning…</div></div>
+    </div>
+  </div>
+  <div class="bottom-row">
+    <div class="card">
+      <div class="card-title">Feed Health <span>per store</span></div>
+      <div class="health-grid" id="healthGrid"><div class="loading"><div class="spin"></div> Checking…</div></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Ingest Test Events <span>simulate traffic</span></div>
+      <div class="ingest-form">
+        <input class="ingest-input" id="visitorCount" type="number" value="5" min="1" max="50" placeholder="# visitors">
+        <button class="ingest-btn" onclick="ingestSampleEvents()">▶ Inject Visitors</button>
+        <button class="ingest-btn secondary" onclick="refreshAll()">↻ Refresh</button>
+      </div>
+      <div class="ingest-log" id="ingestLog"><span class="log-info">// Ready. Click "Inject Visitors" to simulate store traffic.</span></div>
+    </div>
+  </div>
+</main>
+<script>
+const API='https://store-intelligence-9epo.onrender.com';
+let dwellChart=null;
+
+function getStore(){return document.getElementById('storeSelect').value}
+
+function initDwellChart(){
+  const ctx=document.getElementById('dwellChart').getContext('2d');
+  dwellChart=new Chart(ctx,{type:'bar',data:{labels:[],datasets:[{label:'Avg Dwell (seconds)',data:[],backgroundColor:'rgba(0,212,255,0.25)',borderColor:'rgba(0,212,255,0.8)',borderWidth:1,borderRadius:4}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#64748b',font:{family:'IBM Plex Mono',size:10}},grid:{color:'#1e2d45'}},y:{ticks:{color:'#64748b',font:{family:'IBM Plex Mono',size:10}},grid:{color:'#1e2d45'}}}}});
+}
+
+async function fetchJSON(url){const res=await fetch(url);if(!res.ok)throw new Error(res.status);return res.json()}
+
+function renderMetrics(data){
+  document.getElementById('kpiVisitors').textContent=data.unique_visitors??'0';
+  document.getElementById('kpiConversion').textContent=((data.conversion_rate||0)*100).toFixed(1)+'%';
+  document.getElementById('kpiQueue').textContent=data.queue_depth??'0';
+  document.getElementById('kpiRevenue').textContent='₹'+(data.total_revenue_inr||0).toLocaleString();
+  const dwell=data.avg_dwell_seconds_per_zone||{};
+  const labels=Object.keys(dwell),values=Object.values(dwell);
+  if(dwellChart&&labels.length>0){dwellChart.data.labels=labels;dwellChart.data.datasets[0].data=values;dwellChart.update()}
+  else if(dwellChart){dwellChart.data.labels=['No zone data yet'];dwellChart.data.datasets[0].data=[0];dwellChart.update()}
+}
+
+function renderFunnel(data){
+  const wrap=document.getElementById('funnelWrap');
+  const stages=data.funnel||[];
+  if(!stages.length){wrap.innerHTML='<div class="empty">No funnel data yet.<br>Inject visitors to see the funnel.</div>';return}
+  const maxVisitors=stages[0]?.visitors||1;
+  const colors=['#00d4ff','#7c3aed','#f59e0b','#10b981'];
+  document.getElementById('funnelDate').textContent=data.date||'';
+  wrap.innerHTML=stages.map((s,i)=>`<div class="funnel-stage"><div class="funnel-label">${s.stage}</div><div class="funnel-bar-wrap"><div class="funnel-bar" style="width:${Math.max((s.visitors/maxVisitors)*100,4)}%;background:${colors[i]}">${s.visitors}</div></div><div class="funnel-drop">${s.drop_off_pct>0?'-'+s.drop_off_pct+'%':''}</div></div>`).join('');
+}
+
+function renderHeatmap(data){
+  const grid=document.getElementById('heatmapGrid');
+  const zones=data.zones||[];
+  document.getElementById('heatmapConf').textContent=data.data_confidence||'—';
+  if(!zones.length){grid.innerHTML='<div class="empty" style="grid-column:1/-1">No zone data yet.<br>Inject visitors to populate heatmap.</div>';return}
+  grid.innerHTML=zones.map(z=>{const score=z.normalised_score||0;const opacity=0.15+(score/100)*0.75;return`<div class="heatmap-cell" style="background:rgba(0,212,255,${opacity})"><div class="heatmap-zone">${z.zone_id}</div><div class="heatmap-score">${score}</div><div class="heatmap-dwell">${z.avg_dwell_seconds}s avg dwell</div></div>`}).join('');
+}
+
+function renderAnomalies(data){
+  const list=document.getElementById('anomalyList');
+  const anomalies=data.anomalies||[];
+  document.getElementById('anomalyCount').textContent=anomalies.length?`${anomalies.length} active`:'none';
+  if(!anomalies.length){list.innerHTML='<div class="no-anomalies">✓ All systems normal</div>';return}
+  list.innerHTML=anomalies.map(a=>`<div class="anomaly-item ${a.severity}"><div class="anomaly-header"><div class="anomaly-type">${a.type}</div><div class="anomaly-severity severity-${a.severity}">${a.severity}</div></div><div class="anomaly-msg">${a.message}</div><div class="anomaly-action">→ ${a.suggested_action}</div></div>`).join('');
+}
+
+function renderHealth(data){
+  const grid=document.getElementById('healthGrid');
+  const stores=data.stores||{};
+  const entries=Object.entries(stores);
+  if(!entries.length){grid.innerHTML='<div class="empty">No store feeds registered yet.</div>';return}
+  grid.innerHTML=entries.map(([id,info])=>`<div class="health-row"><div class="health-store">${id}</div><div style="display:flex;align-items:center;gap:10px"><div style="font-family:var(--mono);font-size:10px;color:var(--muted)">${info.lag_minutes!=null?info.lag_minutes+'m ago':'—'}</div><div class="health-status ${info.status==='OK'?'health-ok':'health-stale'}">${info.status}</div></div></div>`).join('');
+}
+
+async function refreshAll(){
+  const store=getStore();
+  const dot=document.getElementById('statusDot');
+  const statusText=document.getElementById('statusText');
+  try{
+    const[metrics,funnel,heatmap,anomalies,health]=await Promise.all([
+      fetchJSON(`${API}/stores/${store}/metrics`),
+      fetchJSON(`${API}/stores/${store}/funnel`),
+      fetchJSON(`${API}/stores/${store}/heatmap`),
+      fetchJSON(`${API}/stores/${store}/anomalies`),
+      fetchJSON(`${API}/health`)
+    ]);
+    renderMetrics(metrics);renderFunnel(funnel);renderHeatmap(heatmap);renderAnomalies(anomalies);renderHealth(health);
+    dot.className='status-dot';statusText.textContent='Live';
+    document.getElementById('lastUpdated').textContent='Updated '+new Date().toLocaleTimeString();
+  }catch(e){dot.className='status-dot error';statusText.textContent='API unreachable';console.error(e)}
+}
+
+async function ingestSampleEvents(){
+  const store=getStore();
+  const count=parseInt(document.getElementById('visitorCount').value)||3;
+  const log=document.getElementById('ingestLog');
+  const zones=['SKINCARE','MOISTURISER','MAIN_FLOOR','BILLING'];
+  log.innerHTML=`<span class="log-info">// Injecting ${count} visitor sessions…</span>\n`;
+  const events=[];
+  const now=new Date();
+  for(let i=0;i<count;i++){
+    const vid='VIS_'+Math.random().toString(36).slice(2,8);
+    const offset=Math.floor(Math.random()*3600);
+    const ts=(t)=>new Date(now.getTime()-(offset-t)*1000).toISOString();
+    events.push({event_id:crypto.randomUUID(),store_id:store,camera_id:'CAM_ENTRY_01',visitor_id:vid,event_type:'ENTRY',timestamp:ts(0),zone_id:null,dwell_ms:0,is_staff:false,confidence:0.95,metadata:{session_seq:1}});
+    events.push({event_id:crypto.randomUUID(),store_id:store,camera_id:'CAM_FLOOR_01',visitor_id:vid,event_type:'ZONE_ENTER',timestamp:ts(30),zone_id:zones[Math.floor(Math.random()*3)],dwell_ms:0,is_staff:false,confidence:0.85,metadata:{session_seq:2}});
+    events.push({event_id:crypto.randomUUID(),store_id:store,camera_id:'CAM_FLOOR_01',visitor_id:vid,event_type:'ZONE_DWELL',timestamp:ts(90),zone_id:zones[Math.floor(Math.random()*3)],dwell_ms:45000+Math.random()*30000,is_staff:false,confidence:0.85,metadata:{session_seq:3}});
+    if(Math.random()>0.4){const qd=Math.floor(Math.random()*6)+1;events.push({event_id:crypto.randomUUID(),store_id:store,camera_id:'CAM_BILLING_01',visitor_id:vid,event_type:'BILLING_QUEUE_JOIN',timestamp:ts(150),zone_id:'BILLING',dwell_ms:0,is_staff:false,confidence:0.88,metadata:{queue_depth:qd,session_seq:4}})}
+    events.push({event_id:crypto.randomUUID(),store_id:store,camera_id:'CAM_ENTRY_01',visitor_id:vid,event_type:'EXIT',timestamp:ts(300),zone_id:null,dwell_ms:0,is_staff:false,confidence:0.9,metadata:{session_seq:5}});
+  }
+  try{
+    const res=await fetch(`${API}/events/ingest`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({events})});
+    const data=await res.json();
+    log.innerHTML+=`<span class="log-ok">✓ accepted=${data.accepted} duplicate=${data.duplicate} rejected=${data.rejected}</span>\n`;
+    log.innerHTML+=`<span class="log-info">// Refreshing dashboard…</span>\n`;
+    await refreshAll();
+    log.innerHTML+=`<span class="log-ok">✓ Dashboard updated.</span>`;
+  }catch(e){log.innerHTML+=`<span class="log-err">✗ Error: ${e.message}</span>`}
+  log.scrollTop=log.scrollHeight;
+}
+
+document.getElementById('storeSelect').addEventListener('change',refreshAll);
+initDwellChart();
+refreshAll();
+setInterval(refreshAll,15000);
+</script>
+</body>
+</html>
