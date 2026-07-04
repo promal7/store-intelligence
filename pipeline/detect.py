@@ -3,8 +3,8 @@
 # ENTRY, EXIT, ZONE_ENTER, ZONE_EXIT, ZONE_DWELL, BILLING_QUEUE_JOIN,
 # BILLING_QUEUE_ABANDON and REENTRY. Handle staff detection, group entry,
 # re-entry, and partial occlusion gracefully."
-# CHANGES MADE: Added confidence threshold filtering, zone assignment from
-# bounding box position, staff detection by dwell pattern, re-entry window.
+# CHANGES MADE: Added store_layout.json zone loading, confidence threshold
+# filtering, staff detection by dwell pattern, re-entry window.
 
 import cv2
 import json
@@ -15,29 +15,35 @@ from pathlib import Path
 from ultralytics import YOLO
 from collections import defaultdict
 
-# ── Config ────────────────────────────────────────────────────────────
 CONFIDENCE_THRESHOLD = 0.3
-ENTRY_LINE_RATIO     = 0.15   # top 15% of frame = entry zone
-EXIT_LINE_RATIO      = 0.15
-DWELL_THRESHOLD_SEC  = 30     # emit ZONE_DWELL every 30s
-REENTRY_WINDOW_SEC   = 300    # 5 min window to detect re-entry
-STAFF_DWELL_RATIO    = 0.7    # if in store >70% of clip = staff
+DWELL_THRESHOLD_SEC  = 30
+REENTRY_WINDOW_SEC   = 300
+STAFF_DWELL_RATIO    = 0.7
 
 STORE_ID  = "STORE_BLR_002"
 CAMERA_ID = "CAM_ENTRY_01"
 
-# ── Zone definitions (fallback if no store_layout.json) ───────────────
 DEFAULT_ZONES = {
-    "ENTRY_ZONE"  : (0.0, 0.0,  1.0, 0.2),   # x1,y1,x2,y2 as ratios
-    "MAIN_FLOOR"  : (0.0, 0.2,  1.0, 0.7),
-    "BILLING"     : (0.0, 0.7,  1.0, 1.0),
+    "ENTRY_ZONE":  (0.0, 0.0,  1.0, 0.15),
+    "SKINCARE":    (0.0, 0.15, 0.5, 0.45),
+    "MOISTURISER": (0.5, 0.15, 1.0, 0.45),
+    "HAIRCARE":    (0.0, 0.45, 0.5, 0.70),
+    "MAIN_FLOOR":  (0.5, 0.45, 1.0, 0.70),
+    "BILLING":     (0.0, 0.70, 1.0, 1.0),
 }
 
 def load_zones(layout_path):
-    if Path(layout_path).exists():
-        with open(layout_path) as f:
-            layout = json.load(f)
-        return layout.get("zones", DEFAULT_ZONES)
+    try:
+        if Path(layout_path).exists():
+            with open(layout_path) as f:
+                layout = json.load(f)
+            zones = layout.get("zones", {})
+            if zones:
+                print(f"Loaded {len(zones)} zones from {layout_path}")
+                return {k: tuple(v) for k, v in zones.items()}
+    except Exception as e:
+        print(f"Warning: Could not load store_layout.json: {e}")
+    print("Using default zone definitions")
     return DEFAULT_ZONES
 
 def get_zone(cx, cy, fw, fh, zones):
@@ -48,13 +54,14 @@ def get_zone(cx, cy, fw, fh, zones):
     return None
 
 def is_entering(prev_cy, curr_cy, fh):
-    return prev_cy is not None and prev_cy < fh * ENTRY_LINE_RATIO <= curr_cy
+    return prev_cy is not None and prev_cy < fh * 0.15 <= curr_cy
 
 def is_exiting(prev_cy, curr_cy, fh):
-    return prev_cy is not None and curr_cy < fh * EXIT_LINE_RATIO <= prev_cy
+    return prev_cy is not None and curr_cy < fh * 0.15 <= prev_cy
 
 def make_event(event_type, visitor_id, zone_id=None, dwell_ms=0,
-               is_staff=False, confidence=1.0, metadata=None, base_time=None, frame_offset_sec=0):
+               is_staff=False, confidence=1.0, metadata=None,
+               base_time=None, frame_offset_sec=0):
     ts = (base_time + timedelta(seconds=frame_offset_sec)).strftime("%Y-%m-%dT%H:%M:%SZ")
     return {
         "event_id"  : str(uuid.uuid4()),
@@ -75,17 +82,18 @@ def process_clip(video_path, output_path, layout_path="data/store_layout.json"):
     zones  = load_zones(layout_path)
     cap    = cv2.VideoCapture(str(video_path))
     fps    = cap.get(cv2.CAP_PROP_FPS) or 15
-    base_time = datetime(2026, 6, 1, 9, 0, 0)
+    base_time = datetime.now().replace(hour=9, minute=0, second=0, microsecond=0)
 
-    # Per-track state
-    track_history   = defaultdict(lambda: {"frames": 0, "prev_cy": None, "zone": None,
-                                            "zone_entry_frame": None, "dwell_emitted": 0,
-                                            "entered": False, "exited": False})
-    exited_tracks   = {}   # track_id -> exit_frame (for re-entry)
-    visitor_map     = {}   # track_id -> visitor_id
-    events          = []
-    frame_idx       = 0
-    queue_depth     = 0
+    track_history = defaultdict(lambda: {
+        "frames": 0, "prev_cy": None, "zone": None,
+        "zone_entry_frame": None, "dwell_emitted": 0,
+        "entered": False, "exited": False
+    })
+    exited_tracks = {}
+    visitor_map   = {}
+    events        = []
+    frame_idx     = 0
+    queue_depth   = 0
 
     print(f"Processing {video_path}...")
 
@@ -98,7 +106,6 @@ def process_clip(video_path, output_path, layout_path="data/store_layout.json"):
         frame_idx += 1
         frame_sec = frame_idx / fps
 
-        # Run detection + tracking every 3rd frame for speed
         if frame_idx % 3 != 0:
             continue
 
@@ -108,12 +115,12 @@ def process_clip(video_path, output_path, layout_path="data/store_layout.json"):
         if results[0].boxes is None or results[0].boxes.id is None:
             continue
 
-        boxes      = results[0].boxes.xyxy.cpu().numpy()
-        track_ids  = results[0].boxes.id.cpu().numpy().astype(int)
-        confs      = results[0].boxes.conf.cpu().numpy()
+        boxes     = results[0].boxes.xyxy.cpu().numpy()
+        track_ids = results[0].boxes.id.cpu().numpy().astype(int)
+        confs     = results[0].boxes.conf.cpu().numpy()
         active_ids = set(track_ids.tolist())
 
-        # Check exits for tracks that disappeared
+        # Check exits for disappeared tracks
         for tid in list(track_history.keys()):
             if tid not in active_ids and track_history[tid]["entered"] and not track_history[tid]["exited"]:
                 vid = visitor_map.get(tid, f"VIS_{tid:06x}")
@@ -128,13 +135,11 @@ def process_clip(video_path, output_path, layout_path="data/store_layout.json"):
             x1, y1, x2, y2 = boxes[i]
             conf = float(confs[i])
             cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
-
-            state    = track_history[tid]
-            prev_cy  = state["prev_cy"]
+            state   = track_history[tid]
+            prev_cy = state["prev_cy"]
 
             # Assign visitor_id
             if tid not in visitor_map:
-                # Check re-entry
                 reentry = False
                 for old_tid, exit_frame in exited_tracks.items():
                     if frame_idx - exit_frame < fps * REENTRY_WINDOW_SEC:
@@ -143,7 +148,8 @@ def process_clip(video_path, output_path, layout_path="data/store_layout.json"):
                             visitor_map[tid] = old_vid
                             reentry = True
                             events.append(make_event("REENTRY", old_vid, confidence=conf,
-                                                      base_time=base_time, frame_offset_sec=frame_sec))
+                                                      base_time=base_time,
+                                                      frame_offset_sec=frame_sec))
                             break
                 if not reentry:
                     visitor_map[tid] = f"VIS_{uuid.uuid4().hex[:6]}"
@@ -171,14 +177,14 @@ def process_clip(video_path, output_path, layout_path="data/store_layout.json"):
                 if state["zone"]:
                     events.append(make_event("ZONE_EXIT", vid, zone_id=state["zone"],
                                               confidence=conf, is_staff=is_staff,
-                                              base_time=base_time, frame_offset_sec=frame_sec))
+                                              base_time=base_time,
+                                              frame_offset_sec=frame_sec))
                 if curr_zone:
                     events.append(make_event("ZONE_ENTER", vid, zone_id=curr_zone,
                                               confidence=conf, is_staff=is_staff,
-                                              base_time=base_time, frame_offset_sec=frame_sec))
+                                              base_time=base_time,
+                                              frame_offset_sec=frame_sec))
                     state["zone_entry_frame"] = frame_idx
-
-                    # Billing queue
                     if curr_zone == "BILLING":
                         queue_depth += 1
                         events.append(make_event("BILLING_QUEUE_JOIN", vid,
@@ -199,7 +205,8 @@ def process_clip(video_path, output_path, layout_path="data/store_layout.json"):
                     events.append(make_event("ZONE_DWELL", vid, zone_id=state["zone"],
                                               dwell_ms=int(dwell_sec * 1000),
                                               confidence=conf, is_staff=is_staff,
-                                              base_time=base_time, frame_offset_sec=frame_sec))
+                                              base_time=base_time,
+                                              frame_offset_sec=frame_sec))
 
             state["prev_cy"] = cy
             state["frames"] += 1
@@ -220,18 +227,14 @@ def process_clip(video_path, output_path, layout_path="data/store_layout.json"):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input",  default="data/clips", help="Path to clips folder")
-    parser.add_argument("--output", default="data/events/events.jsonl", help="Output JSONL path")
-    parser.add_argument("--layout", default="data/store_layout.json", help="store_layout.json path")
-    parser.add_argument("--cam",    default=None, help="Process single clip (e.g. 'CAM 1.mp4')")
+    parser.add_argument("--input",  default="data/clips")
+    parser.add_argument("--output", default="data/events/events.jsonl")
+    parser.add_argument("--layout", default="data/store_layout.json")
+    parser.add_argument("--cam",    default=None)
     args = parser.parse_args()
 
     clips_dir = Path(args.input)
-
-    if args.cam:
-        clips = [clips_dir / args.cam]
-    else:
-        clips = sorted(clips_dir.glob("*.mp4"))
+    clips = [clips_dir / args.cam] if args.cam else sorted(clips_dir.glob("*.mp4"))
 
     all_events = []
     for clip in clips:

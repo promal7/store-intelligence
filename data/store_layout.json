@@ -1,0 +1,18 @@
+{
+  "store_id": "STORE_BLR_002",
+  "store_name": "Apex Retail Bangalore 002",
+  "open_hours": {"open": "09:00", "close": "21:00"},
+  "cameras": [
+    {"camera_id": "CAM_ENTRY_01", "type": "entry_exit", "zone_coverage": ["ENTRY_ZONE"]},
+    {"camera_id": "CAM_FLOOR_01", "type": "main_floor", "zone_coverage": ["SKINCARE", "MOISTURISER", "MAIN_FLOOR", "HAIRCARE"]},
+    {"camera_id": "CAM_BILLING_01", "type": "billing", "zone_coverage": ["BILLING"]}
+  ],
+  "zones": {
+    "ENTRY_ZONE":  [0.0, 0.0, 1.0, 0.15],
+    "SKINCARE":    [0.0, 0.15, 0.5, 0.45],
+    "MOISTURISER": [0.5, 0.15, 1.0, 0.45],
+    "HAIRCARE":    [0.0, 0.45, 0.5, 0.70],
+    "MAIN_FLOOR":  [0.5, 0.45, 1.0, 0.70],
+    "BILLING":     [0.0, 0.70, 1.0, 1.0]
+  }
+}
