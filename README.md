@@ -88,4 +88,3 @@ python3.12 -m pytest tests/ -v
 
 ---
 
-Made by [Promal Sharma](https://github.com/promal7) — VIT Bhopal, CSE 2023–2027
